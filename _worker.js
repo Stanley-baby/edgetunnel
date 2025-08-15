@@ -23,6 +23,7 @@ let go2Socks5s = [
     '*cloudatacdn.com',
     '*.loadshare.org',
 ];
+let go2DNS64 = []; // 新增：DNS64域名路由白名单
 let addresses = [];
 let addressesapi = [];
 let addressesnotls = [];
@@ -90,6 +91,7 @@ export default {
             proxyIPs = await 整理(proxyIP);
             proxyIP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
             DNS64Server = env.DNS64 || env.NAT64 || DNS64Server;
+            if (env.GO2DNS64) go2DNS64 = await 整理(env.GO2DNS64);
             socks5Address = env.HTTP || env.SOCKS5 || socks5Address;
             socks5s = await 整理(socks5Address);
             socks5Address = socks5s[Math.floor(Math.random() * socks5s.length)];
@@ -150,6 +152,12 @@ export default {
                 } else if (url.searchParams.has('socks')) {
                     path = `/?socks5=${url.searchParams.get('socks')}`;
                     RproxyIP = 'false';
+                } else if (url.searchParams.has('dns64')) {
+                    // 添加DNS64域名白名单URL参数支持
+                    const dns64Param = url.searchParams.get('dns64');
+                    if (dns64Param) {
+                        go2DNS64 = await 整理(dns64Param);
+                    }
                 }
 
                 SCV = env.SCV || SCV;
@@ -390,6 +398,15 @@ async function handleTCPOutBound(remoteSocket, addressType, addressRemote, portR
         });
     }
 
+    async function useDNS64Pattern(address) {
+        if (go2DNS64.includes(atob('YWxsIGlu')) || go2DNS64.includes(atob('Kg=='))) return true;
+        return go2DNS64.some(pattern => {
+            let regexPattern = pattern.replace(/\*/g, '.*');
+            let regex = new RegExp(`^${regexPattern}$`, 'i');
+            return regex.test(address);
+        });
+    }
+
     async function connectAndWrite(address, port, socks = false, http = false) {
         log(`connected to ${address}:${port}`);
         //if (/^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?).){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(address)) address = `${atob('d3d3Lg==')}${address}${atob('LmlwLjA5MDIyNy54eXo=')}`;
@@ -430,6 +447,17 @@ async function handleTCPOutBound(remoteSocket, addressType, addressRemote, portR
             // 如果启用了 SOCKS5，通过 SOCKS5 代理重试连接
             tcpSocket = await connectAndWrite(addressRemote, portRemote, true, enableHttp);
         } else {
+            // 新增：检查是否需要使用DNS64域名路由
+            const useDNS64 = await useDNS64Pattern(addressRemote);
+            if (useDNS64) {
+                // DNS64域名路由模式
+                log(`DNS64域名路由: ${addressRemote}`);
+                const nat64Proxyip = `[${await resolveToIPv6(addressRemote)}]`;
+                log(`NAT64 代理连接到 ${nat64Proxyip}:${portRemote}`);
+                tcpSocket = await connectAndWrite(nat64Proxyip, portRemote);
+                return;
+            }
+            
             // 否则，尝试使用预设的代理 IP（如果有）或原始地址重试连接
             if (!proxyIP || proxyIP == '') {
                 proxyIP = atob('UFJPWFlJUC50cDEuMDkwMjI3Lnh5eg==');
@@ -1578,18 +1606,37 @@ async function 生成配置信息(userID, hostName, sub, UA, RproxyIP, _url, fak
             if (go2Socks5s.includes(atob('YWxsIGlu')) || go2Socks5s.includes(atob('Kg=='))) socks5List += `${decodeURIComponent('%E6%89%80%E6%9C%89%E6%B5%81%E9%87%8F')}<br>`;
             else socks5List += `<br>&nbsp;&nbsp;${go2Socks5s.join('<br>&nbsp;&nbsp;')}<br>`;
         }
+        
+        // 新增：DNS64域名路由白名单显示
+        let dns64List = '';
+        if (go2DNS64.length > 0) {
+            dns64List = `DNS64（域名路由）: `;
+            if (go2DNS64.includes(atob('YWxsIGlu')) || go2DNS64.includes(atob('Kg=='))) {
+                dns64List += `所有流量<br>`;
+            } else {
+                dns64List += `<br>&nbsp;&nbsp;${go2DNS64.join('<br>&nbsp;&nbsp;')}<br>`;
+            }
+        }
 
         let 订阅器 = '<br>';
         if (sub) {
             if (enableSocks) 订阅器 += `CFCDN（访问方式）: ${enableHttp ? "HTTP" : "Socks5"}<br>&nbsp;&nbsp;${newSocks5s.join('<br>&nbsp;&nbsp;')}<br>${socks5List}`;
             else if (proxyIP && proxyIP != '') 订阅器 += `CFCDN（访问方式）: ProxyIP<br>&nbsp;&nbsp;${proxyIPs.join('<br>&nbsp;&nbsp;')}<br>`;
             else if (RproxyIP == 'true') 订阅器 += `CFCDN（访问方式）: 自动获取ProxyIP<br>`;
-            else 订阅器 += `CFCDN（访问方式）: 内置兜底, 您也可以设置 proxyIP/PROXYIP 。<br>`
+            else 订阅器 += `CFCDN（访问方式）: 内置兜底, 您也可以设置 proxyIP/PROXYIP 。<br>`;
+            
+            // 添加DNS64域名路由白名单显示
+            if (dns64List) 订阅器 += `<br>${dns64List}`;
+            
             订阅器 += `<br>SUB（优选订阅生成器）: ${sub}`;
         } else {
             if (enableSocks) 订阅器 += `CFCDN（访问方式）: ${enableHttp ? "HTTP" : "Socks5"}<br>&nbsp;&nbsp;${newSocks5s.join('<br>&nbsp;&nbsp;')}<br>${socks5List}`;
             else if (proxyIP && proxyIP != '') 订阅器 += `CFCDN（访问方式）: ProxyIP<br>&nbsp;&nbsp;${proxyIPs.join('<br>&nbsp;&nbsp;')}<br>`;
             else 订阅器 += `CFCDN（访问方式）: 内置兜底, 您也可以设置 proxyIP/PROXYIP 。<br>`;
+            
+            // 添加DNS64域名路由白名单显示
+            if (dns64List) 订阅器 += `<br>${dns64List}`;
+            
             let 判断是否绑定KV空间 = '';
             if (env.KV) 判断是否绑定KV空间 = ` [<a href='${_url.pathname}/edit'>编辑优选列表</a>]  [<a href='${_url.pathname}/bestip'>在线优选IP</a>]`;
             订阅器 += `<br>您的订阅内容由 内置 addresses/ADD* 参数变量提供${判断是否绑定KV空间}<br>`;
@@ -1631,14 +1678,17 @@ async function 生成配置信息(userID, hostName, sub, UA, RproxyIP, _url, fak
                     <strong>3.</strong> 快速切换 <a href='${atob('aHR0cHM6Ly9naXRodWIuY29tL2NtbGl1L1dvcmtlclZsZXNzMnN1Yg==')}'>优选订阅生成器</a> 至：sub.google.com，您可将"?sub=sub.google.com"参数添加到链接末尾，例如：<br>
                     &nbsp;&nbsp;https://${proxyhost}${hostName}/${uuid}<strong>?sub=sub.google.com</strong><br>
                     <br>
-                    <strong>4.</strong> 快速更换 PROXYIP 至：proxyip.cmliussss.net:443，您可将"?proxyip=proxyip.cmliussss.net:443"参数添加到链接末尾，例如：<br>
+                    <strong>4.</strong> 快速更换 PROXYIP 至：proxyip.cmliussss.net:443，您可将"?proxyip=proxyip.cmliussss.net:参数添加到链接末尾，例如：<br>
                     &nbsp;&nbsp; https://${proxyhost}${hostName}/${uuid}<strong>?proxyip=proxyip.cmliussss.net:443</strong><br>
                     <br>
                     <strong>5.</strong> 快速更换 SOCKS5 至：user:password@127.0.0.1:1080，您可将"?socks5=user:password@127.0.0.1:1080"参数添加到链接末尾，例如：<br>
                     &nbsp;&nbsp;https://${proxyhost}${hostName}/${uuid}<strong>?socks5=user:password@127.0.0.1:1080</strong><br>
                     <br>
-                    <strong>6.</strong> 如需指定多个参数则需要使用'&'做间隔，例如：<br>
-                    &nbsp;&nbsp;https://${proxyhost}${hostName}/${uuid}?sub=sub.google.com<strong>&</strong>proxyip=proxyip.cmliussss.net<br>
+                    <strong>6.</strong> 快速设置 DNS64 域名路由至：*.netflix.com,*.hulu.com，您可将"?dns64=*.netflix.com,*.hulu.com"参数添加到链接末尾，例如：<br>
+                    &nbsp;&nbsp;https://${proxyhost}${hostName}/${uuid}<strong>?dns64=*.netflix.com,*.hulu.com</strong><br>
+                    <br>
+                    <strong>7.</strong> 如需指定多个参数则需要使用'&'做间隔，例如：<br>
+                    &nbsp;&nbsp;https://${proxyhost}${hostName}/${uuid}?sub=sub.google.com<strong>&</strong>proxyip=proxyip.cmliussss.net<strong>&</strong>dns64=*.netflix.com<br>
                 </div>
             <script src="https://cdn.jsdelivr.net/npm/@keeex/qrcodejs-kx@1.0.2/qrcode.min.js"></script>
             <script>
